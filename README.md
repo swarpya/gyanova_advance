@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # bitnet.cpp
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 ![version](https://img.shields.io/badge/version-1.0-blue)
@@ -336,3 +337,9 @@ Import-Module "C:\Program Files\Microsoft Visual Studio\2022\Professional\Common
 ```
 
 These steps will initialize your environment and allow you to use the correct Visual Studio tools.
+=======
+Get started by customizing your environment (defined in the .idx/dev.nix file) with the tools and IDE extensions you'll need for your project!
+
+Learn more at https://developers.google.com/idx/guides/customize-idx-env
+>>>>>>> dbd500c592fd6e5dbbef8fa18c74af6a0aafcd06
+# F.L.A.R.E.
