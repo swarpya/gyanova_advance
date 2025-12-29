@@ -15,11 +15,19 @@
     pkgs.gnumake
     pkgs.wget
     pkgs.python311Packages.pip
+    pkgs.sudo
+    pkgs.gcc        # The C compiler
+    pkgs.gnumake    # Make tool
+    pkgs.cmake      # CMake build system
+    pkgs.zlib       # Common dependency
     # pkgs.nodejs_20
     # pkgs.nodePackages.nodemon
   ];
   # Sets environment variables in the workspace
-  env = {};
+  env = {
+    CC = "gcc";
+    CXX = "g++";
+  };
   idx = {
     # Search for the extensions you want on https://open-vsx.org/ and use "publisher.id"
     extensions = [

@@ -6,6 +6,7 @@ import json
 import os
 import sys
 import re
+from collections import Counter # <--- NEW: For counting votes
 
 app = Flask(__name__)
 
@@ -16,19 +17,13 @@ DATASET_PATH = os.path.join(BASE_DIR, "dataset.json")
 ORIGINAL_MODEL_PATH = os.path.join(BASE_DIR, "models/bitnet_b1_58-large/ggml-model-i2_s.gguf")
 RAM_DISK_MODEL = "/tmp/bitnet_fast_model.gguf"
 
-if not os.path.exists(BINARY_PATH):
-    print(f"❌ CRITICAL: Binary not found at {BINARY_PATH}")
-    sys.exit(1)
+if not os.path.exists(BINARY_PATH): sys.exit(1)
 
-# --- FRESH COPY LOGIC ---
 try:
     if not os.path.exists(RAM_DISK_MODEL):
-        print(f"🚀 Copying model to {RAM_DISK_MODEL} (Please wait)...")
         shutil.copyfile(ORIGINAL_MODEL_PATH, RAM_DISK_MODEL)
-        print("✅ Copy complete.")
     MODEL_PATH = RAM_DISK_MODEL
-except Exception as e:
-    print(f"⚠️ RAM Copy failed: {e}. Using disk model.")
+except:
     MODEL_PATH = ORIGINAL_MODEL_PATH
 
 print("⏳ Loading Embedding Model...")
@@ -38,7 +33,7 @@ with open(DATASET_PATH, 'r') as f:
 corpus_texts = [item['text'] for item in dataset]
 corpus_embeddings = embedder.encode(corpus_texts, convert_to_tensor=True)
 
-print("✅ Server Ready (DIAGNOSTIC MODE)")
+print("✅ Server Ready (Hybrid Classification)")
 
 @app.route('/predict', methods=['POST'])
 def predict():
@@ -53,7 +48,25 @@ def predict():
     query_embedding = embedder.encode(user_query, convert_to_tensor=True)
     hits = util.semantic_search(query_embedding, corpus_embeddings, top_k=5)[0]
     
-    # 2. Build Prompt
+    # --- NEW: FAST PATH (Voting Logic) ---
+    if mode == 'router':
+        # Get the tool names of the top 3 hits
+        top_tools = [dataset[hits[i]['corpus_id']]['tool'] for i in range(3)]
+        print(f"🗳️  Search Hits: {top_tools}")
+        
+        # Count the votes
+        vote_counts = Counter(top_tools)
+        winner, count = vote_counts.most_common(1)[0]
+        
+        # THRESHOLD: If 3 out of 3 (or 2 out of 3) agree, trust them!
+        # Strictness: 3 means unanimous (very safe), 2 means majority (faster).
+        if count >= 2: 
+            print(f"⚡ FAST PATH: Skipping LLM. Majority vote says '{winner}'")
+            return jsonify({"tool": winner})
+        
+        print(f"🤔 AMBIGUOUS: Votes split {vote_counts}. Asking LLM...")
+
+    # 2. Build Prompt (Only runs for Extractor OR Ambiguous Router)
     prompt_context = ""
     example_count = 0
     
@@ -77,44 +90,30 @@ def predict():
         final_prompt = f"Instruction: Extract parameters.\n{prompt_context}Example {next_num}:\nUser: {user_query}\nParameters:"
 
     # 3. RUN BITNET
-    # REMOVED --log-disable to see errors
     cmd = [
         BINARY_PATH, "-m", MODEL_PATH, "-n", "40", "-t", "2", "-p", final_prompt,
         "-ngl", "0", "-c", "2048", "--temp", "0", "-b", "1"
     ]
     
     try:
-        # Run and capture BOTH stdout and stderr
         result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='ignore')
-        
-        # Combine logs so we see everything
         full_log = result.stderr + result.stdout
         
-        # DEBUG PRINT: Show exactly what happened
-        if result.returncode != 0:
-            print(f"❌ BINARY CRASHED (Code {result.returncode}):\n{result.stderr}")
-        else:
-            print(f"🧠 FULL LOGS (Last 500 chars):\n...{full_log[-500:]}\n-----------------")
-
-        # --- PARSING ---
+        # Parsing Logic
         answer = "Unknown"
-        
-        # Locate the "Example X:" section
         marker = f"Example {next_num}:"
         start_idx = full_log.find(marker)
         
         if start_idx != -1:
             relevant_section = full_log[start_idx:]
-            
             splitter = "Tool:" if mode == 'router' else "Parameters:"
             split_idx = relevant_section.find(splitter)
-            
             if split_idx != -1:
                 after_splitter = relevant_section[split_idx + len(splitter):]
                 answer = after_splitter.split('\n')[0].strip()
         
         answer = answer.strip(' "')
-        print(f"🎯 PARSED ANSWER: '{answer}'")
+        print(f"🎯 LLM ANSWER: '{answer}'")
 
         if mode == 'router':
             return jsonify({"tool": answer})
@@ -122,7 +121,6 @@ def predict():
             return jsonify({"params": answer})
         
     except Exception as e:
-        print(f"❌ PYTHON ERROR: {e}")
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
