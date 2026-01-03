@@ -1,0 +1,31 @@
+version: '3.7'
+
+services:
+  db:
+    image: postgres:13
+    environment:
+      POSTGRES_DB: windmill
+      POSTGRES_USER: windmill
+      POSTGRES_PASSWORD: changeme
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+  windmill_server:
+    image: ghcr.io/windmill-labs/windmill:main
+    deploy:
+      replicas: 1
+    restart: always
+    ports:
+      - "8000:8000"  # This is the new UI port (instead of 8080)
+    environment:
+      - DATABASE_URL=postgres://windmill:changeme@db:5432/windmill
+      - RUST_LOG=info
+      - WORKER_GROUP=default
+    depends_on:
+      - db
+
+  # We include the worker in the same container for simplicity in this setup
+  # In production, workers can be separate.
+
+volumes:
+  db_data:
